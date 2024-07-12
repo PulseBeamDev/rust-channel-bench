@@ -4,8 +4,8 @@ Quick benchmark to find out how different channel implementations cope with coll
 
 This compares two scenarios:
 
-a) `cloned-send`: Cloning the sender of a single channel into many tasks
-b) `merged-recv`: Merging the receivers of many channels with [`futures_buffered::FuturesUnordered`](https://docs.rs/futures-buffered/latest/futures_buffered/struct.FuturesUnordered.html)
+* a) `cloned-send`: Cloning the sender of a single channel into many tasks
+* b) `merged-recv`: Merging the receivers of many channels with [`futures_buffered::FuturesUnordered`](https://docs.rs/futures-buffered/latest/futures_buffered/struct.FuturesUnordered.html)
 
 I added implementations for [`flume`](https://docs.rs/flume/), [`tokio::sync::mpsc`](https://docs.rs/tokio/latest/tokio/sync/mpsc/), and [`async-channel`](https://docs.rs/async-channel).
 
