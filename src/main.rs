@@ -1,23 +1,26 @@
+use bytes::Bytes;
 use futures_lite::{Stream, StreamExt};
 use futures_util::{Sink, SinkExt};
 use std::time::Instant;
+use tokio::task::JoinSet;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::PollSender;
 
-use tokio::task::JoinSet;
-
 fn main() {
-    let rt_multi_thread = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+    let rt_multi_thread = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .build()
+        .unwrap();
     let rt_current_thread = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
 
-    let total_msgs = 1024 * 1024;
+    let total_msgs = 10 * 1024 * 1024;
     let total_cap = 1024;
 
-    println!("running channel benchmark with {total_msgs} messages and capacity {total_cap}");
+    println!("running WebRTC SFU benchmark with {total_msgs} messages and capacity {total_cap}");
 
-    for n_tasks in [2, 16, 64, 256, 512] {
+    for n_tasks in [2, 4, 8, 16] {
         let msgs_per_task = total_msgs / n_tasks;
         let settings = format!(
             "tasks: {n_tasks}, messages per task: {msgs_per_task}, capacity per task: {}",
@@ -46,7 +49,10 @@ async fn flume_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
     let mut join_set = JoinSet::new();
     for i in 0..n_tasks {
         let tx = tx.clone();
-        join_set.spawn(send_all(tx.into_sink(), n_msgs, move |j| i * j));
+        join_set.spawn(send_all(tx.into_sink(), n_msgs, move |_| {
+            // Simulate WebRTC RTP packet (1200 bytes)
+            Bytes::from(vec![(i % 256) as u8; 1200])
+        }));
     }
     drop(tx);
     join_set.spawn(recv_report(rx.into_stream(), total, "cloned-send flume"));
@@ -59,7 +65,9 @@ async fn flume_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
     let mut rx_all = vec![];
     for i in 0..n_tasks {
         let (tx, rx) = flume::bounded(cap);
-        join_set.spawn(send_all(tx.into_sink(), n_msgs, move |j| i * j));
+        join_set.spawn(send_all(tx.into_sink(), n_msgs, move |_| {
+            Bytes::from(vec![(i % 256) as u8; 1200])
+        }));
         rx_all.push(rx.into_stream());
     }
     let rx = futures_buffered::Merge::from_iter(rx_all);
@@ -72,8 +80,8 @@ async fn tokio_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
     let (tx, rx) = tokio::sync::mpsc::channel(cap);
     let mut join_set = JoinSet::new();
     for i in 0..n_tasks {
-        join_set.spawn(send_all(PollSender::new(tx.clone()), n_msgs, move |j| {
-            i * j
+        join_set.spawn(send_all(PollSender::new(tx.clone()), n_msgs, move |_| {
+            Bytes::from(vec![(i % 256) as u8; 1200])
         }));
     }
     drop(tx);
@@ -88,7 +96,9 @@ async fn tokio_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
     let mut rx_all = vec![];
     for i in 0..n_tasks {
         let (tx, rx) = tokio::sync::mpsc::channel(cap);
-        join_set.spawn(send_all(PollSender::new(tx), n_msgs, move |j| i * j));
+        join_set.spawn(send_all(PollSender::new(tx), n_msgs, move |_| {
+            Bytes::from(vec![(i % 256) as u8; 1200])
+        }));
         rx_all.push(ReceiverStream::new(rx));
     }
     let rx = futures_buffered::Merge::from_iter(rx_all);
@@ -103,8 +113,8 @@ async fn async_channel_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) 
     for i in 0..n_tasks {
         let tx = tx.clone();
         join_set.spawn(async move {
-            for j in 0..n_msgs {
-                let value = i * j;
+            for _ in 0..n_msgs {
+                let value = Bytes::from(vec![(i % 256) as u8; 1200]);
                 tx.send(value).await.map_err(|_| ()).unwrap();
             }
         });
@@ -121,8 +131,8 @@ async fn async_channel_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize
     for i in 0..n_tasks {
         let (tx, rx) = async_channel::bounded(cap);
         join_set.spawn(async move {
-            for j in 0..n_msgs {
-                let value = i * j;
+            for _ in 0..n_msgs {
+                let value = Bytes::from(vec![(i % 256) as u8; 1200]);
                 tx.send(value).await.map_err(|_| ()).unwrap();
             }
         });
