@@ -6,6 +6,11 @@ use tokio::task::JoinSet;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::PollSender;
 
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() {
     let rt_multi_thread = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
