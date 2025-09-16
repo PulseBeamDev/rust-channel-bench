@@ -8,14 +8,12 @@ edition = "2021"
 [dependencies]
 async-channel = "2.3.1"
 bytes = "1.10.1"
-concurrent-queue = "2.5.0"
 flume = "0.11.0"
 futures-buffered = "0.2.6"
 futures-lite = "2.3.0"
 futures-util = { version = "0.3.30", features = ["sink"] }
 mimalloc = "0.1.48"
-parking_lot = "0.12.4"
-tokio = { version = "1.38.0", features = ["full", "rt", "rt-multi-thread"] }
+tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread"] }
 tokio-stream = { version = "0.1.15", features = ["sync"] }
 tokio-util = "0.7.11"
 

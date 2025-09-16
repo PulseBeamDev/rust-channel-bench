@@ -23,7 +23,7 @@ fn main() {
 
     println!("running WebRTC SFU benchmark with {total_msgs} messages and capacity {total_cap}");
 
-    let tasks = [1, 2, 4, 8, 16, 64, 128, 256, 512];
+    let tasks = [2, 4, 8, 16, 64, 128, 256, 512];
     for n_tasks in tasks {
         let msgs_per_task = total_msgs / n_tasks;
         let settings = format!(
@@ -32,8 +32,8 @@ fn main() {
         );
         println!("\n# multi_thread,   {settings}\n");
         rt_multi_thread.block_on(run_all(n_tasks, msgs_per_task, total_cap));
-        // println!("\n# current_thread, {settings}\n");
-        // rt_current_thread.block_on(run_all(n_tasks, msgs_per_task, total_cap));
+        println!("\n# current_thread, {settings}\n");
+        rt_current_thread.block_on(run_all(n_tasks, msgs_per_task, total_cap));
     }
 }
 
