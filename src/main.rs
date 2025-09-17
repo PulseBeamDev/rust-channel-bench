@@ -40,15 +40,17 @@ fn main() {
 }
 
 async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
-    let parallel = 1;
+    let parallel = 4;
 
     let futs: Vec<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>>>> = vec![
         Box::new(|| tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
         Box::new(|| flume_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
         Box::new(|| async_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        Box::new(|| futures_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
         Box::new(|| tokio_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| flume_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| async_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
+        Box::new(|| futures_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
     ];
 
     for fut in futs.iter() {
@@ -162,6 +164,45 @@ async fn async_channel_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize
     }
     let rx = StreamMap::from_iter(rx_all);
     join_set.spawn(recv_report(rx, total, "merged-recv async-channel"));
+    join_all(join_set).await;
+}
+
+async fn futures_channel_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
+    let total = n_tasks * n_msgs;
+    let (tx, rx) = futures::channel::mpsc::channel::<Arc<Bytes>>(cap);
+    let mut join_set = JoinSet::new();
+    for i in 0..n_tasks {
+        let mut tx = tx.clone();
+        // Pre-allocate Bytes outside the benchmark
+        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        join_set.spawn(async move {
+            for _ in 0..n_msgs {
+                tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
+            }
+        });
+    }
+    drop(tx);
+    join_set.spawn(recv_report(rx, total, "cloned-send futures-channel"));
+    join_all(join_set).await;
+}
+
+async fn futures_channel_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
+    let total = n_tasks * n_msgs;
+    let mut join_set = JoinSet::new();
+    let mut rx_all = vec![];
+    for i in 0..n_tasks {
+        let (mut tx, rx) = futures::channel::mpsc::channel::<Arc<Bytes>>(cap);
+        // Pre-allocate Bytes outside the benchmark
+        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        join_set.spawn(async move {
+            for _ in 0..n_msgs {
+                tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
+            }
+        });
+        rx_all.push((i, Box::pin(rx)));
+    }
+    let rx = StreamMap::from_iter(rx_all);
+    join_set.spawn(recv_report(rx, total, "merged-recv futures-channel"));
     join_all(join_set).await;
 }
 
