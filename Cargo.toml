@@ -6,16 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-channel = "2.3.1"
+async-channel = "2.5.0"
 bytes = "1.10.1"
-flume = "0.11.0"
-futures-buffered = "0.2.6"
-futures-lite = "2.3.0"
-futures-util = { version = "0.3.30", features = ["sink"] }
+flume = "0.11.1"
+futures = "0.3.31"
 mimalloc = "0.1.48"
-tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread"] }
-tokio-stream = { version = "0.1.15", features = ["sync"] }
-tokio-util = "0.7.11"
+tokio = { version = "1.47.1", features = ["full"] }
+tokio-stream = { version = "0.1.17", features = ["sync"] }
+tokio-util = "0.7.16"
 
 [profile.release]
 debug = true

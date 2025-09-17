@@ -1,10 +1,10 @@
 use bytes::Bytes;
-use futures_lite::{Stream, StreamExt};
-use futures_util::{Sink, SinkExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamMap;
 use tokio_util::sync::PollSender;
 
 use mimalloc::MiMalloc;
@@ -19,7 +19,7 @@ fn main() {
         .unwrap();
 
     let total_msgs = 1024 * 1024;
-    let total_cap = 1024;
+    let total_cap = 512 * 128;
 
     println!("running WebRTC SFU benchmark with {total_msgs} messages and capacity {total_cap}");
 
@@ -32,19 +32,19 @@ fn main() {
         );
         println!("\n# multi_thread,   {settings}\n");
         rt_multi_thread.block_on(run_all(n_tasks, msgs_per_task, total_cap));
-        println!("\n# current_thread, {settings}\n");
-        rt_current_thread.block_on(run_all(n_tasks, msgs_per_task, total_cap));
+        // println!("\n# current_thread, {settings}\n");
+        // rt_current_thread.block_on(run_all(n_tasks, msgs_per_task, total_cap));
     }
 }
 
 async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
     tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).await;
     flume_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).await;
-    async_channel_merged_receiver(n_tasks, n_msgs, total_cap).await;
+    async_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).await;
     println!(" ");
     tokio_cloned_sender(n_tasks, n_msgs, total_cap).await;
     flume_cloned_sender(n_tasks, n_msgs, total_cap).await;
-    async_channel_cloned_sender(n_tasks, n_msgs, total_cap / n_tasks).await;
+    async_channel_cloned_sender(n_tasks, n_msgs, total_cap).await;
 }
 
 async fn flume_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
@@ -71,9 +71,9 @@ async fn flume_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
         // Pre-allocate Bytes outside the benchmark
         let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
         join_set.spawn(send_all(tx.into_sink(), n_msgs, move |_| payload.clone()));
-        rx_all.push(rx.into_stream());
+        rx_all.push((i, rx.into_stream()));
     }
-    let rx = futures_buffered::Merge::from_iter(rx_all);
+    let rx = StreamMap::from_iter(rx_all);
     join_set.spawn(recv_report(rx, total, "merged-recv flume"));
     join_all(join_set).await;
 }
@@ -106,9 +106,9 @@ async fn tokio_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
         join_set.spawn(send_all(PollSender::new(tx), n_msgs, move |_| {
             payload.clone()
         }));
-        rx_all.push(ReceiverStream::new(rx));
+        rx_all.push((i, ReceiverStream::new(rx)));
     }
-    let rx = futures_buffered::Merge::from_iter(rx_all);
+    let rx = StreamMap::from_iter(rx_all);
     join_set.spawn(recv_report(rx, total, "merged-recv tokio"));
     join_all(join_set).await;
 }
@@ -145,9 +145,9 @@ async fn async_channel_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize
                 tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
             }
         });
-        rx_all.push(rx);
+        rx_all.push((i, Box::pin(rx)));
     }
-    let rx = futures_buffered::Merge::from_iter(rx_all);
+    let rx = StreamMap::from_iter(rx_all);
     join_set.spawn(recv_report(rx, total, "merged-recv async-channel"));
     join_all(join_set).await;
 }
