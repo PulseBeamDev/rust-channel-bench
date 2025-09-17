@@ -3,7 +3,7 @@ use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamMap;
@@ -15,17 +15,21 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
-    let rt_multi_thread = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+    let rt_multi_thread = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let rt_current_thread = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
 
-    let total_msgs = 1024 * 1024;
-    let total_cap = 512 * 128;
+    let total_msgs = 1 * 1024 * 1024;
+    let total_cap = 512 * 4;
 
     println!("running WebRTC SFU benchmark with {total_msgs} messages and capacity {total_cap}");
 
-    let tasks = [1, 2, 4, 8, 16, 64, 128, 256, 512];
+    // let tasks = [1, 2, 4, 8, 16, 64, 128, 256, 512];
+    let tasks = [256, 512];
     for n_tasks in tasks {
         let msgs_per_task = total_msgs / n_tasks;
         let settings = format!(
@@ -40,7 +44,7 @@ fn main() {
 }
 
 async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
-    let parallel = 4;
+    let parallel = 32;
 
     let futs: Vec<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>>>> = vec![
         // Box::new(|| tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
@@ -50,7 +54,7 @@ async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
         Box::new(|| tokio_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| flume_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| async_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
-        Box::new(|| futures_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
+        Box::new(|| futures_channel_cloned_sender(n_tasks, n_msgs, total_cap - n_tasks).boxed()),
     ];
 
     for fut in futs.iter() {
@@ -214,6 +218,10 @@ async fn send_all<T: Send>(
     for i in 0..count {
         let value = create_item(i);
         sink.send(value).await.map_err(|_| ()).unwrap();
+
+        if i % 10 == 0 {
+            tokio::time::sleep(Duration::from_nanos(33)).await;
+        }
     }
 }
 

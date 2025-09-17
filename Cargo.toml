@@ -14,7 +14,7 @@ async-channel = "2.5.0"
 bytes = "1.10.1"
 flume = "0.11.1"
 futures = "0.3.31"
-mimalloc = "0.1.48"
+mimalloc = { version = "0.1.48", features = ["v3"] }
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 tokio-util = "0.7.16"
