@@ -25,7 +25,7 @@ fn main() {
 
     println!("running WebRTC SFU benchmark with {total_msgs} messages and capacity {total_cap}");
 
-    let tasks = [2, 4, 8, 16, 64, 128, 256, 512];
+    let tasks = [1, 2, 4, 8, 16, 64, 128, 256, 512];
     for n_tasks in tasks {
         let msgs_per_task = total_msgs / n_tasks;
         let settings = format!(
@@ -43,10 +43,10 @@ async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
     let parallel = 4;
 
     let futs: Vec<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>>>> = vec![
-        Box::new(|| tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
-        Box::new(|| flume_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
-        Box::new(|| async_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
-        Box::new(|| futures_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        // Box::new(|| tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        // Box::new(|| flume_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        // Box::new(|| async_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        // Box::new(|| futures_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
         Box::new(|| tokio_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| flume_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| async_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
