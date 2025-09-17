@@ -1,5 +1,7 @@
 use bytes::Bytes;
-use futures::{Sink, SinkExt, Stream, StreamExt};
+use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::task::JoinSet;
@@ -38,13 +40,24 @@ fn main() {
 }
 
 async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
-    tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).await;
-    flume_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).await;
-    async_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).await;
-    println!(" ");
-    tokio_cloned_sender(n_tasks, n_msgs, total_cap).await;
-    flume_cloned_sender(n_tasks, n_msgs, total_cap).await;
-    async_channel_cloned_sender(n_tasks, n_msgs, total_cap).await;
+    let parallel = 1;
+
+    let futs: Vec<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>>>> = vec![
+        Box::new(|| tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        Box::new(|| flume_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        Box::new(|| async_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
+        Box::new(|| tokio_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
+        Box::new(|| flume_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
+        Box::new(|| async_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
+    ];
+
+    for fut in futs.iter() {
+        let mut join_set = JoinSet::new();
+        for _ in 0..parallel {
+            join_set.spawn(fut());
+        }
+        join_set.join_all().await;
+    }
 }
 
 async fn flume_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
