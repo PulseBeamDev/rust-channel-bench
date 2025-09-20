@@ -23,13 +23,14 @@ fn main() {
         .build()
         .unwrap();
 
-    let total_msgs = 1 * 1024 * 1024;
-    let total_cap = 512 * 4;
+    let total_msgs = 10 * 1024 * 1024;
+    let total_cap = 1024;
 
     println!("running WebRTC SFU benchmark with {total_msgs} messages and capacity {total_cap}");
 
     // let tasks = [1, 2, 4, 8, 16, 64, 128, 256, 512];
-    let tasks = [256, 512];
+    // let tasks = [256, 512];
+    let tasks = [1, 2, 4, 8];
     for n_tasks in tasks {
         let msgs_per_task = total_msgs / n_tasks;
         let settings = format!(
@@ -44,17 +45,18 @@ fn main() {
 }
 
 async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
-    let parallel = 32;
+    let parallel = 1;
 
     let futs: Vec<Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>>>> = vec![
         // Box::new(|| tokio_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
         // Box::new(|| flume_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
         // Box::new(|| async_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
         // Box::new(|| futures_channel_merged_receiver(n_tasks, n_msgs, total_cap / n_tasks).boxed()),
-        Box::new(|| tokio_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| flume_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
+        Box::new(|| tokio_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
         Box::new(|| async_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
-        Box::new(|| futures_channel_cloned_sender(n_tasks, n_msgs, total_cap - n_tasks).boxed()),
+        Box::new(|| futures_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
+        Box::new(|| kanal_channel_cloned_sender(n_tasks, n_msgs, total_cap).boxed()),
     ];
 
     for fut in futs.iter() {
@@ -68,12 +70,12 @@ async fn run_all(n_tasks: usize, n_msgs: usize, total_cap: usize) {
 
 async fn flume_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
     let total = n_tasks * n_msgs;
-    let (tx, rx) = flume::bounded::<Arc<Bytes>>(cap);
+    let (tx, rx) = flume::bounded::<Bytes>(cap);
     let mut join_set = JoinSet::new();
     for i in 0..n_tasks {
         let tx = tx.clone();
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(send_all(tx.into_sink(), n_msgs, move |_| payload.clone()));
     }
     drop(tx);
@@ -86,9 +88,9 @@ async fn flume_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
     let mut join_set = JoinSet::new();
     let mut rx_all = vec![];
     for i in 0..n_tasks {
-        let (tx, rx) = flume::bounded::<Arc<Bytes>>(cap);
+        let (tx, rx) = flume::bounded::<Bytes>(cap);
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(send_all(tx.into_sink(), n_msgs, move |_| payload.clone()));
         rx_all.push((i, rx.into_stream()));
     }
@@ -99,11 +101,11 @@ async fn flume_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
 
 async fn tokio_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
     let total = n_tasks * n_msgs;
-    let (tx, rx) = tokio::sync::mpsc::channel::<Arc<Bytes>>(cap);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(cap);
     let mut join_set = JoinSet::new();
     for i in 0..n_tasks {
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(send_all(PollSender::new(tx.clone()), n_msgs, move |_| {
             payload.clone()
         }));
@@ -119,9 +121,9 @@ async fn tokio_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
     let mut join_set = JoinSet::new();
     let mut rx_all = vec![];
     for i in 0..n_tasks {
-        let (tx, rx) = tokio::sync::mpsc::channel::<Arc<Bytes>>(cap);
+        let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(cap);
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(send_all(PollSender::new(tx), n_msgs, move |_| {
             payload.clone()
         }));
@@ -134,12 +136,12 @@ async fn tokio_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
 
 async fn async_channel_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
     let total = n_tasks * n_msgs;
-    let (tx, rx) = async_channel::bounded::<Arc<Bytes>>(cap);
+    let (tx, rx) = async_channel::bounded::<Bytes>(cap);
     let mut join_set = JoinSet::new();
     for i in 0..n_tasks {
         let tx = tx.clone();
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(async move {
             for _ in 0..n_msgs {
                 tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
@@ -156,9 +158,9 @@ async fn async_channel_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize
     let mut join_set = JoinSet::new();
     let mut rx_all = vec![];
     for i in 0..n_tasks {
-        let (tx, rx) = async_channel::bounded::<Arc<Bytes>>(cap);
+        let (tx, rx) = async_channel::bounded::<Bytes>(cap);
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(async move {
             for _ in 0..n_msgs {
                 tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
@@ -173,12 +175,12 @@ async fn async_channel_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize
 
 async fn futures_channel_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
     let total = n_tasks * n_msgs;
-    let (tx, rx) = futures::channel::mpsc::channel::<Arc<Bytes>>(cap);
+    let (tx, rx) = futures::channel::mpsc::channel::<Bytes>(cap);
     let mut join_set = JoinSet::new();
     for i in 0..n_tasks {
         let mut tx = tx.clone();
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(async move {
             for _ in 0..n_msgs {
                 tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
@@ -190,14 +192,36 @@ async fn futures_channel_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize
     join_all(join_set).await;
 }
 
+async fn kanal_channel_cloned_sender(n_tasks: usize, n_msgs: usize, cap: usize) {
+    let total = n_tasks * n_msgs;
+    let (tx, rx) = kanal::bounded_async(cap);
+    let mut join_set = JoinSet::new();
+    for i in 0..n_tasks {
+        let tx = tx.clone();
+        // Pre-allocate Bytes outside the benchmark
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
+        join_set.spawn(async move {
+            for _ in 0..n_msgs {
+                tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
+            }
+        });
+    }
+    drop(tx);
+    join_set.spawn(async move {
+        let stream = rx.stream();
+        recv_report(stream, total, "cloned-send kanal-channel").await;
+    });
+    join_all(join_set).await;
+}
+
 async fn futures_channel_merged_receiver(n_tasks: usize, n_msgs: usize, cap: usize) {
     let total = n_tasks * n_msgs;
     let mut join_set = JoinSet::new();
     let mut rx_all = vec![];
     for i in 0..n_tasks {
-        let (mut tx, rx) = futures::channel::mpsc::channel::<Arc<Bytes>>(cap);
+        let (mut tx, rx) = futures::channel::mpsc::channel::<Bytes>(cap);
         // Pre-allocate Bytes outside the benchmark
-        let payload = Arc::new(Bytes::from(vec![(i % 256) as u8; 1200]));
+        let payload = Bytes::from(vec![(i % 256) as u8; 1200]);
         join_set.spawn(async move {
             for _ in 0..n_msgs {
                 tx.send(payload.clone()).await.map_err(|_| ()).unwrap();
@@ -219,9 +243,9 @@ async fn send_all<T: Send>(
         let value = create_item(i);
         sink.send(value).await.map_err(|_| ()).unwrap();
 
-        if i % 10 == 0 {
-            tokio::time::sleep(Duration::from_nanos(33)).await;
-        }
+        // if i % 10 == 0 {
+        //     tokio::time::sleep(Duration::from_micros(30)).await;
+        // }
     }
 }
 
